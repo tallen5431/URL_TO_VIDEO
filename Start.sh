@@ -35,5 +35,5 @@ fi
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-8090}"
 
-echo "[RUN] Launching app.py (HOST=$HOST PORT=$PORT)"
-exec "$VENV_PY" app.py
+echo "[RUN] Launching web app (HOST=$HOST PORT=$PORT)"
+exec "$VENV_PY" -m web

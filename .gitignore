@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 downloads/
+# Desktop build
+.venv-desktop/
+desktop/bin/
+build/
+dist/

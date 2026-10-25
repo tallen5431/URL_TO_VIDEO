@@ -1,0 +1,5 @@
+# Desktop build only (the server version uses ../requirements.txt).
+# yt-dlp is not listed: the app runs the standalone yt-dlp executable.
+flask>=3.0
+pywebview>=5.0
+pyinstaller>=6.10

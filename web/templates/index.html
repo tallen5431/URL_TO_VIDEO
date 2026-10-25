@@ -32,14 +32,18 @@
   .error .meta.err { color:var(--err); }
   .actions { display:flex; gap:6px; flex-shrink:0; }
   .actions a, .actions button { padding:6px 10px; font-size:13px; text-decoration:none; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text); }
-  .actions a.dl { background:var(--ok); border-color:var(--ok); color:#fff; font-weight:600; }
+  .actions .dl { background:var(--ok); border-color:var(--ok); color:#fff; font-weight:600; }
+  .path { font-weight:600; color:var(--text); overflow-wrap:anywhere; }
+  button.link { border:0; background:none; padding:0; color:var(--accent); cursor:pointer; text-decoration:underline; }
   .empty { color:var(--muted); text-align:center; padding:24px 0; }
 </style>
 </head>
 <body>
 <main>
   <h1>URL to Video</h1>
-  <p class="sub">Paste a video page link (YouTube, Vimeo, X, Reddit, and many more) and get an MP4. Files are kept for {{ keep_hours|int }} hours.</p>
+  <p class="sub">Paste a video page link (YouTube, Vimeo, X, Reddit, and many more) and get an MP4.
+    {% if desktop %}<br>Saving to <span id="outdir" class="path"></span> <button type="button" class="link" id="change-dir">Change…</button>
+    {% else %}Files are kept for {{ keep_hours|int }} hours.{% endif %}</p>
   <form id="form">
     <input type="url" id="url" placeholder="https://..." required autofocus>
     <select id="quality" aria-label="Quality">
@@ -54,26 +58,48 @@
   <div id="jobs"></div>
 </main>
 <script>
+const DESKTOP = {{ desktop|tojson }};
 const $ = s => document.querySelector(s);
+// The desktop app's local server requires this header on changes (see app.py).
+const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Requested-With": "url-to-video", ...(opts.headers || {})}});
+const fail = async (res, fallback) => { $("#msg").textContent = (await res.json().catch(() => ({}))).error || fallback; };
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtSize = b => b == null ? "" : b > 1e9 ? (b/1e9).toFixed(2)+" GB" : (b/1e6).toFixed(1)+" MB";
 
 $("#form").addEventListener("submit", async e => {
   e.preventDefault();
   $("#msg").textContent = "";
-  const res = await fetch("api/jobs", {
+  const res = await api("api/jobs", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({url: $("#url").value, quality: $("#quality").value}),
   });
-  if (!res.ok) { $("#msg").textContent = (await res.json().catch(() => ({}))).error || "Request failed"; return; }
+  if (!res.ok) return fail(res, "Request failed");
   $("#url").value = "";
   refresh();
 });
 
 async function removeJob(id) {
-  await fetch("api/jobs/" + id, {method: "DELETE"});
+  await api("api/jobs/" + id, {method: "DELETE"});
   refresh();
+}
+
+async function fileAction(id, action) {
+  $("#msg").textContent = "";
+  const res = await api(`api/jobs/${id}/${action}`, {method: "POST"});
+  if (!res.ok) fail(res, "Couldn't open the file");
+}
+
+if (DESKTOP) {
+  const showSettings = s => { $("#outdir").textContent = s.output_dir; };
+  api("api/settings").then(r => r.json()).then(showSettings);
+  $("#change-dir").addEventListener("click", async () => {
+    const dir = await window.pywebview.api.choose_folder();
+    if (!dir) return;
+    const res = await api("api/settings", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({output_dir: dir})});
+    if (!res.ok) return fail(res, "Couldn't use that folder");
+    showSettings(await res.json());
+  });
 }
 
 function render(jobs) {
@@ -88,7 +114,9 @@ function render(jobs) {
       <div class="row">
         <div class="title">${esc(j.title)}</div>
         <div class="actions">
-          ${j.status === "done" ? `<a class="dl" href="api/jobs/${j.id}/file">Download</a>` : ""}
+          ${j.status !== "done" ? "" : DESKTOP
+            ? `<button class="dl" onclick="fileAction('${j.id}','open')">Open</button><button onclick="fileAction('${j.id}','reveal')">Show in folder</button>`
+            : `<a class="dl" href="api/jobs/${j.id}/file">Download</a>`}
           <button onclick="removeJob('${j.id}')">${active ? "Cancel" : "Remove"}</button>
         </div>
       </div>
@@ -102,7 +130,7 @@ let timer;
 async function refresh() {
   clearTimeout(timer);
   let jobs = [];
-  try { jobs = await (await fetch("api/jobs")).json(); render(jobs); } catch {}
+  try { jobs = await (await api("api/jobs")).json(); render(jobs); } catch {}
   const busy = jobs.some(j => j.status === "queued" || j.status === "downloading");
   timer = setTimeout(refresh, busy ? 1000 : 5000);
 }

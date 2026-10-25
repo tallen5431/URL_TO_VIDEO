@@ -1,0 +1,15 @@
+URL to Video includes the following third-party programs, run as separate
+executables from the bin folder.
+
+yt-dlp
+  https://github.com/yt-dlp/yt-dlp
+  License: The Unlicense (public domain).
+
+FFmpeg (ffmpeg.exe, ffprobe.exe)
+  https://ffmpeg.org
+  Build: BtbN FFmpeg-Builds, https://github.com/BtbN/FFmpeg-Builds
+  License: GNU General Public License v3 (this build includes GPL components
+  such as libx264). The full license text is in bin/FFMPEG_LICENSE.txt.
+  Source code for this build is available at
+  https://github.com/BtbN/FFmpeg-Builds and https://ffmpeg.org/download.html.
+  FFmpeg is a trademark of Fabrice Bellard.

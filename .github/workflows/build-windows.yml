@@ -1,0 +1,35 @@
+name: Build Windows app
+
+on:
+  push:
+    branches: [main, master, "claude/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        shell: pwsh
+        run: ./desktop/build_windows.ps1
+
+      - name: Smoke test the built app
+        shell: pwsh
+        run: |
+          $env:URLTOVIDEO_DATA_DIR = "$env:RUNNER_TEMP\smoke"
+          # A windowed exe returns immediately unless we wait for it.
+          $p = Start-Process -FilePath dist\URLtoVideo\URLtoVideo.exe -ArgumentList "--smoke-test" -Wait -PassThru
+          Get-Content "$env:RUNNER_TEMP\smoke\app.log"
+          if ($p.ExitCode -ne 0) { throw "Smoke test failed with exit code $($p.ExitCode)" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: URLtoVideo-windows
+          path: dist/URLtoVideo-windows.zip
