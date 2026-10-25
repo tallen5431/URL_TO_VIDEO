@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>URL to Video</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#6b7280; --border:#dfe3ea; --accent:#2563eb; --ok:#16a34a; --err:#dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151b; --card:#1b2029; --text:#e6e9ef; --muted:#9aa3b2; --border:#2c3340; --accent:#60a5fa; --ok:#4ade80; --err:#f87171; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:760px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  form { display:flex; gap:8px; flex-wrap:wrap; }
+  input[type=url] { flex:1 1 320px; min-width:0; }
+  input, select, button { font:inherit; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--text); }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  #msg { color:var(--err); min-height:1.5em; margin:8px 0; }
+  .job { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .row { display:flex; gap:10px; align-items:center; justify-content:space-between; }
+  .title { font-weight:600; overflow-wrap:anywhere; }
+  .meta { color:var(--muted); font-size:13px; }
+  .bar { height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin:8px 0 4px; }
+  .bar > div { height:100%; background:var(--accent); transition:width .3s; }
+  .bar.indeterminate > div { width:30% !important; animation:slide 1.2s infinite ease-in-out; }
+  @keyframes slide { from { margin-left:-30%; } to { margin-left:100%; } }
+  .done .bar > div { background:var(--ok); }
+  .error .meta.err { color:var(--err); }
+  .actions { display:flex; gap:6px; flex-shrink:0; }
+  .actions a, .actions button { padding:6px 10px; font-size:13px; text-decoration:none; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text); }
+  .actions a.dl { background:var(--ok); border-color:var(--ok); color:#fff; font-weight:600; }
+  .empty { color:var(--muted); text-align:center; padding:24px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>URL to Video</h1>
+  <p class="sub">Paste a video page link (YouTube, Vimeo, X, Reddit, and many more) and get an MP4. Files are kept for {{ keep_hours|int }} hours.</p>
+  <form id="form">
+    <input type="url" id="url" placeholder="https://..." required autofocus>
+    <select id="quality" aria-label="Quality">
+      <option value="best">Best quality</option>
+      <option value="1080">Up to 1080p</option>
+      <option value="720">Up to 720p</option>
+      <option value="480">Up to 480p</option>
+    </select>
+    <button class="primary" type="submit">Convert</button>
+  </form>
+  <div id="msg"></div>
+  <div id="jobs"></div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtSize = b => b == null ? "" : b > 1e9 ? (b/1e9).toFixed(2)+" GB" : (b/1e6).toFixed(1)+" MB";
+
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("#msg").textContent = "";
+  const res = await fetch("api/jobs", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({url: $("#url").value, quality: $("#quality").value}),
+  });
+  if (!res.ok) { $("#msg").textContent = (await res.json().catch(() => ({}))).error || "Request failed"; return; }
+  $("#url").value = "";
+  refresh();
+});
+
+async function removeJob(id) {
+  await fetch("api/jobs/" + id, {method: "DELETE"});
+  refresh();
+}
+
+function render(jobs) {
+  if (!jobs.length) { $("#jobs").innerHTML = '<div class="empty">No conversions yet.</div>'; return; }
+  $("#jobs").innerHTML = jobs.map(j => {
+    const active = j.status === "queued" || j.status === "downloading";
+    const pct = j.progress == null ? 0 : j.progress;
+    const detail = j.status === "error" ? `<div class="meta err">${esc(j.error)}</div>`
+      : j.status === "done" ? `<div class="meta">${esc(j.filename)} · ${fmtSize(j.size)}</div>`
+      : `<div class="meta">${esc(j.stage)}${j.progress != null ? " · " + pct.toFixed(0) + "%" : ""}${j.speed ? " · " + esc(j.speed) : ""}${j.eta ? " · ETA " + esc(j.eta) : ""}</div>`;
+    return `<div class="job ${j.status}">
+      <div class="row">
+        <div class="title">${esc(j.title)}</div>
+        <div class="actions">
+          ${j.status === "done" ? `<a class="dl" href="api/jobs/${j.id}/file">Download</a>` : ""}
+          <button onclick="removeJob('${j.id}')">${active ? "Cancel" : "Remove"}</button>
+        </div>
+      </div>
+      ${active || j.status === "done" ? `<div class="bar ${active && j.progress == null ? "indeterminate" : ""}"><div style="width:${j.status === "done" ? 100 : pct}%"></div></div>` : ""}
+      ${detail}
+    </div>`;
+  }).join("");
+}
+
+let timer;
+async function refresh() {
+  clearTimeout(timer);
+  let jobs = [];
+  try { jobs = await (await fetch("api/jobs")).json(); render(jobs); } catch {}
+  const busy = jobs.some(j => j.status === "queued" || j.status === "downloading");
+  timer = setTimeout(refresh, busy ? 1000 : 5000);
+}
+refresh();
+</script>
+</body>
+</html>
